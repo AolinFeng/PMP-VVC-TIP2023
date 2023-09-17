@@ -3,7 +3,7 @@ Function:
   Network inference + Post processing
 
 Main functions:
-  * inference_VVC(args)
+  * inference_VVC_seqs(args)
 
 Author: Aolin Feng
 '''
@@ -13,17 +13,17 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
-# import torch.nn.functional as F
-# from torch.autograd import Variable
-# from torch.utils.data import DataLoader, Dataset, TensorDataset
+import torch.nn.functional as F
+from torch.autograd import Variable
+from torch.utils.data import DataLoader, Dataset, TensorDataset
 import time
 
 import Model_QBD as model
-from Metrics import Load_Infe_VP_Dataset, inference_pre_QBD, post_process
+from Metrics import inference_pre_QBD, post_process, seq_post_process
 
 SAVE_MID_RESULT = False
 POST_PROCESS = True
-
+SSRatio = 30
 
 def remove_prefix(state_dict, prefix):
     f = lambda x: x.split(prefix, 1)[-1] if x.startswith(prefix) else x
@@ -45,10 +45,9 @@ def load_pretrain_model(current_model, pretrain_model):
     #     print(k)
     return current_model
 
-
 def load_sequences_info():
-    num = 22
-    seqs_info_path = "VVC_Test_Sequences.txt"
+    num = 79
+    seqs_info_path = r"Training_Sequences.txt" # VVC_Test_Sequences
     seqs_info_fp = open(seqs_info_path, 'r')
     data = []
     for line in seqs_info_fp:
@@ -63,104 +62,197 @@ def load_sequences_info():
     seqs_width = data[:num, 2].astype(np.int64)  # enough bits for calculating h*w
     seqs_height = data[:num, 3].astype(np.int64)
     seqs_frmnum = data[:num, 4].astype(np.int64)
-    sub_frmnum_list = []
+    sub_frmnum_list, block_num_list = [], []
     for i in range(num):
         SubSampleRatio = 30
         if i >= 79:
             SubSampleRatio = 1
-        SubSampleRatio = 8
+        SubSampleRatio = SSRatio
         sub_frmnum = (seqs_frmnum[i] + SubSampleRatio - 1) // SubSampleRatio
         sub_frmnum_list.append(sub_frmnum)
-    return seqs_path_name, seqs_width, seqs_height, sub_frmnum_list
+        block_num = (seqs_width[i] // 64) * (seqs_height[i] // 64) * sub_frmnum
+        block_num_list.append(block_num)
 
+    return seqs_name, seqs_path_name, seqs_width, seqs_height, seqs_frmnum, sub_frmnum_list, block_num_list
+
+def import_yuv420(file_path, width, height, frm_num, SubSampleRatio=1, is10bit=False):
+    fp = open(file_path,'rb')
+    pixnum = width * height
+    subnumfrm = (frm_num + SubSampleRatio - 1) // SubSampleRatio # actual frame number after downsampling
+    if is10bit:
+        data_type = np.uint16
+    else:
+        data_type = np.uint8
+    y_temp = np.zeros(pixnum*subnumfrm, dtype=data_type)
+    u_temp = np.zeros(pixnum*subnumfrm // 4, dtype=data_type)
+    v_temp = np.zeros(pixnum*subnumfrm // 4, dtype=data_type)
+    for i in range(0, frm_num, SubSampleRatio):
+        if is10bit:
+            fp.seek(i * pixnum * 3, 0)
+        else:
+            fp.seek(i * pixnum * 3 // 2, 0)
+        subi = i // SubSampleRatio
+        y_temp[subi*pixnum : (subi+1)*pixnum] = np.fromfile(fp, dtype=data_type, count=pixnum, sep='')
+        u_temp[subi*pixnum//4 : (subi+1)*pixnum//4] = np.fromfile(fp, dtype=data_type, count=pixnum//4, sep='')
+        v_temp[subi*pixnum//4 : (subi+1)*pixnum//4] = np.fromfile(fp, dtype=data_type, count=pixnum//4, sep='')
+    fp.close()
+    y = y_temp.reshape((subnumfrm, height, width))
+    u = u_temp.reshape((subnumfrm, height//2, width//2))
+    v = v_temp.reshape((subnumfrm, height//2, width//2))
+    return y, u, v  # return frm_num * H * W
+
+def output_block_yuv(file_path, width, height, block_size, in_overlap, numfrm, SubSampleRatio, is10bit=False, save_path=None):
+    y, u, v = import_yuv420(file_path, width, height, numfrm, SubSampleRatio, is10bit=is10bit)
+    if is10bit:
+        y = (np.round(y / 4)).clip(0, 255).astype(np.uint8)
+        u = (np.round(u / 4)).clip(0, 255).astype(np.uint8)
+        v = (np.round(v / 4)).clip(0, 255).astype(np.uint8)
+    block_num_in_width = width // block_size
+    block_num_in_height = height // block_size
+    # print(block_num_in_width, block_num_in_height)
+    for id, comp in enumerate([y, u, v]):
+        if id == 0:
+            overlap = in_overlap
+            comp_block_size = block_size
+        else:
+            overlap = int(in_overlap / 2)
+            comp_block_size = block_size // 2
+        pad_comp = np.zeros((comp.shape[0], comp.shape[1]+overlap, comp.shape[2]+overlap), dtype=np.uint8)
+        pad_comp[:, overlap:, overlap:] = comp
+        subnumfrm = comp.shape[0]
+
+        block_list = []
+        for f_num in range(subnumfrm):
+            for i in range(block_num_in_height):
+                for j in range(block_num_in_width):
+                    block_list.append(pad_comp
+                         [f_num, i * comp_block_size:(i + 1) * comp_block_size + overlap, j * comp_block_size:(j + 1) * comp_block_size + overlap])
+        if id == 0:
+            block_y = np.array(block_list)
+        elif id == 1:
+            block_u = np.array(block_list)
+        else:
+            block_v = np.array(block_list)
+
+    if save_path is not None:
+        out_fp = open(save_path, "wb")
+        for i in range(block_y.shape[0]):
+            out_fp.write(block_y[i].reshape(-1))
+            out_fp.write(block_u[i].reshape(-1))
+            out_fp.write(block_v[i].reshape(-1))
+        out_fp.close()
+
+    # print('shape of block_y', block_y.shape)
+    # print('shape of block_u', block_u.shape)
+    # print('shape of block_v', block_v.shape)
+    # del block_y, block_u, block_v
+    return block_y, block_u, block_v  # num_block * block_size * block_size
 
 @torch.no_grad()
-def inference_VVC(args):
-    qp_base_list = [22, 27, 32, 37]
-    qp_list = []
-    for qp_id in range(args.startQPID, args.startQPID + args.qpNum):
-        qp_list.append(qp_base_list[qp_id])
-    print("QP:", qp_list)
-    net_time = 0
-    post_time = 0
-    # seqs_path_name, seqs_width, seqs_height, sub_frmnum_list = load_sequences_info()
-    # seqs_num = 22
-    # comp_list = ["Luma", "Chroma"]
-    if POST_PROCESS:
-        save_dir = os.path.join(args.outDir, args.jobID, 'PartitionMat')
-        if not os.path.exists(save_dir):
-            os.makedirs(save_dir)
-    if SAVE_MID_RESULT:
-        save_mid_dir = os.path.join(args.outDir, args.jobID, 'OutputMap')
-        if not os.path.exists(save_mid_dir):
-            os.makedirs(save_mid_dir)
+def inference_VVC_seqs(args):
+    save_dir = os.path.join(args.outDir, args.jobID, "PartitionMat")
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
 
-    data_name = "Test"
-    # input_pre_path = os.path.join(args.inputDir, data_name)
-    for comp in ["Luma", "Chroma"]:
-        is_luma = False
-        max_bt_depth = 4
-        if comp == "Luma":
-            is_luma = True
-            max_bt_depth = 5
-        QB_test_loader = Load_Infe_VP_Dataset(pre_path=args.inputDir, batchSize=args.batchSize, isLuma=is_luma)
-        for qp in qp_list:
-            print(comp + " QP" + str(qp) + " network inference start...")
-            net_start_time = time.time()
-            ################################################### Load Models #######################################################
-            if comp == "Luma":
-                Net_Q = model.Luma_Q_Net()
-                Net_BD = model.Luma_MSBD_Net()
-                # Net_D = model.Luma_D_Net()
-            else:
-                Net_Q = model.Chroma_Q_Net()
-                Net_BD = model.Chroma_MSBD_Net()
-                # Net_D = model.Chroma_D_Net()
+    seqs_block_time = np.zeros(22)
+    seqs_net_time = np.zeros((22, 4, 2))
+    seqs_post_time = np.zeros((22, 4, 2))
 
-            net_Q_path = "./Models/" + comp + "_Q_" + str(qp) + ".pkl"
-            net_BD_path = "./Models/" + comp + "_BD_" + str(qp) + ".pkl"
-            # net_D_path = "./Models/" + comp + "_D_" + str(qp) + ".pkl"
-            # Net_D.load_state_dict(torch.load(net_D_path))
-            # print("Start loading network")
-            Net_Q = load_pretrain_model(Net_Q, net_Q_path)
-            Net_BD = load_pretrain_model(Net_BD, net_BD_path)
-            Net_Q = nn.DataParallel(Net_Q).cuda()
-            Net_BD = nn.DataParallel(Net_BD).cuda()
+    seqs_name, seqs_path_name, seqs_width, seqs_height, seqs_frmnum, sub_frmnum_list, block_num_list = load_sequences_info()
+    seq_cfg_dir = r".\per-sequence"
+    for seq_id in range(args.startSeqID, args.startSeqID + args.seqNum):
+        # ********************************** Load Sequence Information *************************************
+        seq_name = seqs_name[seq_id]
+        seq_path_name = seqs_path_name[seq_id].rstrip(".yuv")
+        width = seqs_width[seq_id]
+        height = seqs_height[seq_id]
+        numfrm = seqs_frmnum[seq_id]
+        sub_numfrm = sub_frmnum_list[seq_id]
+        block_num = block_num_list[seq_id]
+        is10bit = False
+        seq_cfg_path = os.path.join(seq_cfg_dir, seq_name + ".cfg")
+        seq_cfg_fp = open(seq_cfg_path)
+        for line in seq_cfg_fp:
+            if "InputFile" in line:
+                line = line.rstrip("\n").split('#')[0]  # remove annotation
+                line = line.replace(" ", "")   # remove space
+                seq_path = line.split(":", 1)[1]  # sequence path
 
-            ################################################### Network Inference #######################################################
-            qt_out_batch, bt_out_batch, dire_out_batch_reg = inference_pre_QBD(QB_test_loader, Net_Q, Net_BD)
-            net_time += time.time() - net_start_time
+            elif "InputBitDepth" in line:
+                line = line.rstrip("\n").split('#')[0]  # remove annotation
+                line = line.replace(" ", "")   # remove space
+                bit_depth = line.split(":", 1)[1]
+                if bit_depth == "10":
+                    is10bit = True
+        print(seq_name)
+        # ********************************** Load Input Blocks *************************************
+        start_time = time.time()
+        block_y, block_u, block_v = output_block_yuv(seq_path, width, height, block_size=64, in_overlap=4,
+                                                     numfrm=numfrm, SubSampleRatio=SSRatio, is10bit=is10bit)
+        seqs_block_time[seq_id-args.startSeqID] = time.time() - start_time
 
-            if SAVE_MID_RESULT:
-                save_qt_path = os.path.join(save_mid_dir, data_name + '_' + comp + '_QP' + str(qp) + "_QTdepth.npy")
-                save_bt_path = os.path.join(save_mid_dir, data_name + '_' + comp + '_QP' + str(qp) + "_MSBTdepth.npy")
-                save_dire_path = os.path.join(save_mid_dir,
-                                              data_name + '_' + comp + '_QP' + str(qp) + "_MSdirection.npy")
-                np.save(save_qt_path, qt_out_batch.cpu().numpy())
-                np.save(save_bt_path, bt_out_batch.cpu().numpy())
-                np.save(save_dire_path, dire_out_batch_reg.cpu().numpy())
+        for comp_id, comp in enumerate(["Luma", "Chroma"]):
+            input_batch = torch.FloatTensor(np.expand_dims(block_y, 1))
+            if comp == "Chroma":
+                input_batch = F.max_pool2d(input_batch, 2)
+                input_batch1 = torch.FloatTensor(np.expand_dims(block_u, 1))
+                input_batch2 = torch.FloatTensor(np.expand_dims(block_v, 1))
+                input_batch = torch.cat([input_batch, input_batch1, input_batch2], 1)
+                del input_batch1, input_batch2
+            # print('input_batch.shape:', input_batch.shape)
 
-            ############################################### Post Process for Each Sequence ####`###########################################
-            if POST_PROCESS:
-                print(comp + " QP" + str(qp) + " post process start...")
-                post_start_time = time.time()
+            # print("Creating inference data loader...")
+            dataset = TensorDataset(input_batch)
+            QB_test_loader = DataLoader(dataset=dataset, num_workers=2, batch_size=args.batchSize, pin_memory=True, shuffle=False)
+
+            for qp in [22, 27, 32, 37]:
+                # ********************************** Load Models *************************************
+                start_time = time.time()
+                if comp == "Luma":
+                    Net_Q = model.Luma_Q_Net()
+                    Net_BD = model.Luma_MSBD_Net()
+                    # Net_D = model.Luma_D_Net()
+                else:
+                    Net_Q = model.Chroma_Q_Net()
+                    Net_BD = model.Chroma_MSBD_Net()
+
+                net_Q_path = "./CTU_Models/" + comp + "_Q_" + str(qp) + ".pkl"
+                net_BD_path = "./CTU_Models/" + comp + "_BD_" + str(qp) + ".pkl"
+                Net_Q = load_pretrain_model(Net_Q, net_Q_path)
+                Net_BD = load_pretrain_model(Net_BD, net_BD_path)
+                Net_Q = nn.DataParallel(Net_Q).cuda()
+                Net_BD = nn.DataParallel(Net_BD).cuda()
+                # ********************************** Network Inference *************************************
+                qt_out_batch, bt_out_batch, dire_out_batch_reg = inference_pre_QBD(QB_test_loader, Net_Q, Net_BD)
+                seqs_net_time[seq_id-args.startSeqID, (qp-22)//5, comp_id] = time.time() - start_time
+
+                # ********************************** Post Process ************************************
+                start_time = time.time()
                 qt_out_batch = torch.FloatTensor(qt_out_batch).cuda()  # b*1*8*8
-                # bt_out_batch = torch.FloatTensor(bt_out_batch)  # b*3*16*16
-                # bt_out_batch = torch.clamp(torch.round(bt_out_batch), min=0, max=max_bt_depth).cpu().numpy()
-                # dire_out_batch_reg = torch.FloatTensor(dire_out_batch_reg).cpu()
-                # dire_out_batch_reg = torch.clamp(torch.round(dire_out_batch_reg), min=-1, max=1).numpy()
-                # dire_out_batch_cla = torch.LongTensor(
-                #     torch.where(dire_out_batch_reg == -1, torch.full_like(dire_out_batch_reg, 2), dire_out_batch_reg)).numpy()
                 bt_out_batch = bt_out_batch.cpu().numpy()
                 dire_out_batch_reg = dire_out_batch_reg.cpu().numpy()
                 # bt_out_batch[:, 1:2, :, :] = bt_out_batch[:, 1:2, :, :] + bt_out_batch[:, 0:1, :, :]
                 # bt_out_batch[:, 2:3, :, :] = bt_out_batch[:, 2:3, :, :] + bt_out_batch[:, 1:2, :, :]
-                post_process(qt_out_batch, bt_out_batch, dire_out_batch_reg, comp, qp, save_dir)
-                post_time += time.time() - post_start_time
 
-    print("Network time: ", net_time)
-    print("Post process time: ", post_time)
+                save_path = os.path.join(save_dir, seq_path_name + "_" + comp + "_QP" + str(qp) + "_PartitionMat.txt")
+                print("Save:", save_path)
+                seq_post_process(qt_out_batch, bt_out_batch, dire_out_batch_reg, comp, sub_numfrm, width, height, save_path)
 
+                seqs_post_time[seq_id-args.startSeqID, (qp-22)//5, comp_id] = time.time() - start_time
+    # ********************************** Log Time Information ************************************
+    sta_log_path = os.path.join(args.outDir, args.jobID,
+                                "Time_Sta_" + str(args.startSeqID) + "_" + str(args.startSeqID + args.seqNum) + ".txt")
+    sta_log_fp = open(sta_log_path, "w")
+    for seq_id in range(args.seqNum):
+        for qp_id in range(4):
+            for s in [str(seqs_block_time[seq_id]),
+                      str(seqs_net_time[seq_id, qp_id, 0]), str(seqs_net_time[seq_id, qp_id, 1]),
+                      str(seqs_post_time[seq_id, qp_id, 0]), str(seqs_post_time[seq_id, qp_id, 1])]:
+                sta_log_fp.write(s)
+                sta_log_fp.write(',')
+            sta_log_fp.write('\n')
+
+    print("Sum time:", np.sum(seqs_block_time) + np.sum(seqs_net_time) + np.sum(seqs_post_time))
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -169,13 +261,13 @@ if __name__ == '__main__':
     parser.add_argument('--outDir', type=str, default='/output/')
     # parser.add_argument('--log_dir', type=str, default='/output/log')
     parser.add_argument('--batchSize', default=200, type=int, help='batch size')
-    parser.add_argument('--startQPID', default=0, type=int, help='QP start ID')
-    parser.add_argument('--qpNum', default=1, type=int, help='test QP number')
+    parser.add_argument('--startSeqID', default=0, type=int, help='QP start ID')
+    parser.add_argument('--seqNum', default=22, type=int, help='test QP number')
 
     args = parser.parse_args()
 
     start_time = time.time()
-    inference_VVC(args)
+    inference_VVC_seqs(args)
     infe_time = time.time() - start_time
     print('Total inference time:', infe_time)
     '''
