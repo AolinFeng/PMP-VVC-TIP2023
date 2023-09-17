@@ -1,13 +1,3 @@
-'''
-Function：
-  Related metrics used in other file
-
-Note:
-  * Not all the functions in this files are used. Check this file when other files refer it.
-
-Author: Aolin Feng
-'''
-
 import argparse
 import os
 import time
@@ -70,197 +60,6 @@ def adjust_learning_rate(lr, optimizer, epoch, decay_rate):
 #****************************************************************************************************************
 # Pre Train
 #****************************************************************************************************************
-
-def Load_Pre_Multi_VP_Dataset(path, QP, batchSize, datasetID=0, PredID=0 ,isLuma=True):
-    # datasetID [train validation test]; PredID [QT BT Direction]
-    # add variance map to the input
-    if isLuma:
-        comp = 'Luma'
-    else:
-        comp = 'Chroma'
-    tr_val_test = ['Train', 'Validate', 'TestSub']
-    dataset_type = tr_val_test[datasetID]
-
-    print('Start loading pre-train ' + comp + ' ' + dataset_type + ' dataset...')
-    if isLuma:  # luma input
-        input_path = os.path.join(path, dataset_type + '_Y_Block68.npy')
-        input_path1 = os.path.join(path, dataset_type + '_Y_Variance.npy')
-        print('input path0:', input_path)
-        # print('input path1:', input_path1)
-        input_batch = torch.FloatTensor(np.expand_dims(np.load(input_path), 1))
-        # input_batch1 = F.interpolate(torch.FloatTensor(np.expand_dims(np.load(input_path1), 1)), scale_factor=4)
-        # input_batch = torch.cat([input_batch, input_batch1], 1)
-        # del input_batch1
-
-    else:  # chroma input
-        input_path = os.path.join(path, dataset_type + '_U_Block34.npy')
-        input_path1 = os.path.join(path, dataset_type + '_V_Block34.npy')
-        input_path2 = os.path.join(path, dataset_type + '_U_Variance.npy')
-        input_path3 = os.path.join(path, dataset_type + '_V_Variance.npy')
-        print('input path0:', input_path)
-        print('input path1:', input_path1)
-        input_batch = torch.FloatTensor(np.expand_dims(np.load(input_path), 1))
-        input_batch1 = torch.FloatTensor(np.expand_dims(np.load(input_path1), 1))
-        input_batch = torch.cat([input_batch, input_batch1], 1)
-        del input_batch1
-
-    print('input_batch.shape:', input_batch.shape)
-    if PredID == 0:  # Q
-        qt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth_Block8.npy')
-        qt_label_path1 = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth1_Block8.npy')
-        qt_label_path2 = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth2_Block8.npy')
-        print('qt_label path:', qt_label_path)
-        qt_label_batch = torch.FloatTensor(np.expand_dims(np.load(qt_label_path), 1) - 1)  # qt depth start form 1
-        qt_label_batch1 = torch.FloatTensor(np.expand_dims(np.load(qt_label_path1), 1) - 1)  # qt depth start form 1
-        qt_label_batch2 = torch.FloatTensor(np.expand_dims(np.load(qt_label_path2), 1) - 1)  # qt depth start form 1
-        print('qt_label_batch.shape:', qt_label_batch.shape)
-        print("Creating Multi Q data loader...")
-        # input_batch = input_batch[0:1157480]
-        # qt_label_batch = qt_label_batch[0:1157480]
-        dataset = TensorDataset(input_batch, qt_label_batch, qt_label_batch1, qt_label_batch2)
-        dataLoader = DataLoader(dataset=dataset, num_workers=2, batch_size=batchSize, pin_memory=True, shuffle=True)
-
-    elif PredID == 1:  # B
-        qt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth_Block8.npy')
-        # qt_label_path1 = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth1_Block8.npy')
-        # qt_label_path2 = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth2_Block8.npy')
-        bt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSBTdepth_Block16.npy')
-        bt_label_path1 = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSBTdepth1_Block16.npy')
-        bt_label_path2 = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSBTdepth2_Block16.npy')
-        print('qt_label path:', qt_label_path)
-        print('bt_label path:', bt_label_path)
-        qt_label_batch = torch.FloatTensor(np.expand_dims(np.load(qt_label_path), 1) - 1)  # qt depth start form 1
-        # qt_label_batch1 = torch.FloatTensor(np.expand_dims(np.load(qt_label_path1), 1) - 1)  # qt depth start form 1
-        # qt_label_batch2 = torch.FloatTensor(np.expand_dims(np.load(qt_label_path2), 1) - 1)  # qt depth start form 1
-        bt_label_batch = torch.FloatTensor(np.expand_dims(np.load(bt_label_path), 1))
-        bt_label_batch1 = torch.FloatTensor(np.expand_dims(np.load(bt_label_path1), 1))
-        bt_label_batch2 = torch.FloatTensor(np.expand_dims(np.load(bt_label_path2), 1))
-        print('qt_label_batch.shape:', qt_label_batch.shape)
-        print('bt_label_batch.shape:', bt_label_batch.shape)
-        # norm_input_batch = block_qtnode_norm(qt_map=qt_label_batch, block=input_batch, isLuma=isLuma)
-        print("Creating Multi B data loader...")
-        # input_batch = input_batch[0:1157480]
-        # qt_label_batch = qt_label_batch[0:1157480]
-        # bt_label_batch = bt_label_batch[0:1157480]
-        dataset = TensorDataset(input_batch, qt_label_batch, bt_label_batch, bt_label_batch1, bt_label_batch2)
-        dataLoader = DataLoader(dataset=dataset, num_workers=2, batch_size=batchSize, pin_memory=True, shuffle=True)
-
-    elif PredID == 2:  # D
-        qt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth_Block8.npy')
-        bt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSBTdepth_Block16.npy')
-        dire_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSdirection_Block16.npy')
-        print('qt_label path:', qt_label_path)
-        print('bt_label path:', bt_label_path)
-        print('direction_label path:', dire_label_path)
-        qt_label_batch = torch.FloatTensor(np.expand_dims(np.load(qt_label_path), 1) - 1)  # qt depth start form 1
-        bt_label_batch = torch.FloatTensor(np.load(bt_label_path))
-        dire_label_batch_reg = torch.LongTensor(np.load(dire_label_path))
-        dire_label_batch_cla = torch.LongTensor(
-            torch.where(dire_label_batch_reg == -1, torch.full_like(dire_label_batch_reg, 2), dire_label_batch_reg))
-        del dire_label_batch_reg
-        print('qt_label_batch.shape:', qt_label_batch.shape)
-        print('bt_label_batch.shape:', bt_label_batch.shape)
-        print('dire_label_batch.shape:', dire_label_batch_cla.shape)
-
-        print("Creating D data loader...")
-        dataset = TensorDataset(input_batch, qt_label_batch, bt_label_batch, dire_label_batch_cla)
-        dataLoader = DataLoader(dataset=dataset, num_workers=2, batch_size=batchSize, pin_memory=True, shuffle=True)
-    else:
-        print("Unknown Dataset!!!")
-        return
-
-    return dataLoader
-
-def Load_Pre_VP_CTU_Dataset(ori_path, ctu_path, QP, batchSize, datasetID=0, PredID=0 ,isLuma=True):
-    # ctu_path save CTU partition label
-    # datasetID [train validation test]; PredID [QT BT Direction]
-    # add variance map to the input
-    if isLuma:
-        comp = 'Luma'
-    else:
-        comp = 'Chroma'
-    tr_val_test = ['Train', 'Validate', 'TestSub']
-    dataset_type = tr_val_test[datasetID]
-
-    print('Start loading pre-train ' + comp + ' ' + dataset_type + ' dataset...')
-    # if isLuma:  # luma input
-    input_path = os.path.join(ori_path, dataset_type + '_Y_Block68.npy')
-    print('input path0:', input_path)
-    input_batch = torch.FloatTensor(np.expand_dims(np.load(input_path), 1))
-
-    if not isLuma:  # chroma input
-        input_path1 = os.path.join(ori_path, dataset_type + '_U_Block34.npy')
-        input_path2 = os.path.join(ori_path, dataset_type + '_V_Block34.npy')
-        print('input path1:', input_path1)
-        print('input path2:', input_path2)
-        input_batch = F.max_pool2d(input_batch, 2)
-        input_batch1 = torch.FloatTensor(np.expand_dims(np.load(input_path1), 1))
-        input_batch2 = torch.FloatTensor(np.expand_dims(np.load(input_path2), 1))
-        input_batch = torch.cat([input_batch, input_batch1, input_batch2], 1)
-        del input_batch1, input_batch2
-
-    if datasetID == 0:  # use CTU partition label for training
-        path = ctu_path
-    else:
-        path = ori_path
-
-    if PredID == 0:  # Q
-        qt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth_Block8.npy')
-        print('qt_label path:', qt_label_path)
-        qt_label_batch = torch.FloatTensor(np.expand_dims(np.load(qt_label_path), 1) - 1)  # qt depth start form 1
-        print('qt_label_batch.shape:', qt_label_batch.shape)
-        print("Creating Q data loader...")
-        # input_batch = input_batch[0:1157480]
-        # qt_label_batch = qt_label_batch[0:1157480]
-        input_batch = input_batch[0:qt_label_batch.shape[0]]
-        dataset = TensorDataset(input_batch, qt_label_batch)
-        dataLoader = DataLoader(dataset=dataset, num_workers=2, batch_size=batchSize, pin_memory=True, shuffle=True)
-
-    elif PredID == 1:  # QB
-        qt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth_Block8.npy')
-        bt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSBTdepth_Block16.npy')
-        print('qt_label path:', qt_label_path)
-        print('bt_label path:', bt_label_path)
-        qt_label_batch = torch.FloatTensor(np.expand_dims(np.load(qt_label_path), 1) - 1)  # qt depth start form 1
-        bt_label_batch = torch.FloatTensor(np.expand_dims(np.load(bt_label_path), 1))
-        print('qt_label_batch.shape:', qt_label_batch.shape)
-        print('bt_label_batch.shape:', bt_label_batch.shape)
-        # norm_input_batch = block_qtnode_norm(qt_map=qt_label_batch, block=input_batch, isLuma=isLuma)
-        print("Creating BD data loader...")
-        # input_batch = input_batch[0:1157480]
-        # qt_label_batch = qt_label_batch[0:1157480]
-        # bt_label_batch = bt_label_batch[0:1157480]
-        dataset = TensorDataset(input_batch, qt_label_batch, bt_label_batch)
-        dataLoader = DataLoader(dataset=dataset, num_workers=2, batch_size=batchSize, pin_memory=True, shuffle=True)
-
-    elif PredID == 2:  # QBD for MSBD training
-        qt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_QTdepth_Block8.npy')
-        bt_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSBTdepth_Block16.npy')
-        dire_label_path = os.path.join(path, dataset_type + '_' + comp + '_QP' + str(QP) + '_MSdirection_Block16.npy')
-        print('qt_label path:', qt_label_path)
-        print('bt_label path:', bt_label_path)
-        print('direction_label path:', dire_label_path)
-        qt_label_batch = torch.FloatTensor(np.expand_dims(np.load(qt_label_path), 1) - 1)  # qt depth start form 1
-        # bt_label_batch = torch.FloatTensor(np.load(bt_label_path))
-        # dire_label_batch_reg = torch.FloatTensor(np.load(dire_label_path))
-        # dire_label_batch_cla = torch.LongTensor(
-        #    torch.where(dire_label_batch_reg == -1, torch.full_like(dire_label_batch_reg, 2), dire_label_batch_reg))
-        # del dire_label_batch_reg
-
-        bt_label_batch = torch.FloatTensor(np.load(bt_label_path))
-        dire_label_batch_reg = torch.FloatTensor(np.load(dire_label_path))
-        print('qt_label_batch.shape:', qt_label_batch.shape)
-        print('bt_label_batch.shape:', bt_label_batch.shape)
-        print('dire_label_batch.shape:', dire_label_batch_reg.shape)
-        print("Creating QBD data loader...")
-        input_batch = input_batch[0:qt_label_batch.shape[0]]
-        dataset = TensorDataset(input_batch, qt_label_batch, bt_label_batch, dire_label_batch_reg)
-        dataLoader = DataLoader(dataset=dataset, num_workers=2, batch_size=batchSize, pin_memory=True, shuffle=True)
-    else:
-        print("Unknown Dataset!!!")
-        return
-
-    return dataLoader
 
 def Load_Pre_VP_Dataset(path, QP, batchSize, datasetID=0, PredID=0 ,isLuma=True):
     # datasetID [train validation test]; PredID [QT BT Direction]
@@ -779,35 +578,6 @@ def inference_QB(infe_loader_QB, Net_QB):  # for Net_D training
 # Inference
 #****************************************************************************************************************
 
-def Load_Infe_VP_Dataset(pre_path, batchSize, isLuma=True):
-    # [train validation test] [0 1 2] VVC partition
-    if isLuma:
-        comp = ['Luma', 'Y']
-        block_size = '68'
-    else:
-        comp = ['Chroma', 'U', 'V']
-        block_size = '34'
-    tr_val_test = ['Train', 'Validate', 'TestSub']
-    dataset_type = "Test"
-
-    print('Start loading ' + comp[0] + ' ' + dataset_type + ' dataset...')
-    input_path = pre_path + '_' + comp[1] + '_Block' + block_size + '.npy'
-    print('input path:', input_path)
-    input_batch = torch.FloatTensor(np.expand_dims(np.load(input_path), 1))[636231:636231+3458]
-    if not isLuma:  # chroma input
-        input_path1 = pre_path + '_' + comp[2] + '_Block' + block_size + '.npy'
-        print('input path1:', input_path1)
-        input_batch1 = torch.FloatTensor(np.expand_dims(np.load(input_path1), 1))
-        input_batch = torch.cat([input_batch, input_batch1], 1)  # concat U V component
-        del input_batch1
-    print('input_batch.shape:', input_batch.shape)
-
-    print("Creating inference data loader...")
-    dataset = TensorDataset(input_batch)
-    dataLoader = DataLoader(dataset=dataset, num_workers=0, batch_size=batchSize, pin_memory=True,  shuffle=False)
-
-    return dataLoader
-
 @torch.no_grad()
 def inference_QBD(infe_loader_QB, Net_QB, Net_D):  # for overall inference
     total_qt_out_batch = torch.zeros(1, 1, 8, 8)
@@ -989,3 +759,22 @@ def post_process(qt_out_batch, bt_out_batch, dire_out_batch, comp, qp, save_dir)
 
 
     del qt_out_batch
+
+
+def seq_post_process(input_qt_batch, input_bt_batch, input_dire_batch, comp, sub_numfrm, width, height, save_path):
+    if comp == "Luma":
+        is_luma = True
+    else:
+        is_luma = False
+    input_qt_batch = eli_structual_error(input_qt_batch).cpu().numpy().squeeze(axis=1)
+    #input_qt_batch = torch.clamp(torch.round(input_qt_batch), min=0, max=3).cpu().numpy().squeeze(axis=1)
+
+    get_sequence_partition_for_VTM(qt_map=input_qt_batch, bt_map=input_bt_batch, dire_map=input_dire_batch,
+                                   is_luma=is_luma,
+                                   save_path=save_path, frm_num=sub_numfrm, frm_width=width, frm_height=height)
+
+
+
+
+
+
