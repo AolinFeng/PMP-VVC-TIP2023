@@ -13,6 +13,7 @@ Main functions:
 Note:
   * The reason it's incomplete is that this code only outputs the qt depth map, direction map, and the last layer of bt depth map.
     The multi-layer bt depth map needs the code "GenMSBTMap.py" to get.
+  * To get "partition information saved from the encoder:, reference the Macro definition "Save_Depth_fal" in the VTM codec.
   * Functions beyond the four main functions serve as reference.
 
 Author: Aolin Feng
@@ -168,7 +169,7 @@ def save_sequence_block_set():
             is10bit = True
         else:
             is10bit = False
-        block_y, block_u, block_v = output_block_yuv(path, width, height, block_size=64, numfrm=frmnum, SubSampleRatio=8, is10bit=is10bit)
+        block_y, block_u, block_v = output_block_yuv(path, width, height, block_size=64, in_overlap=4, numfrm=frmnum, SubSampleRatio=8, is10bit=is10bit)
         save_name_y = seqs_name[i_seq] + '_Y_Block68.npy'
         save_name_u = seqs_name[i_seq] + '_U_Block34.npy'
         save_name_v = seqs_name[i_seq] + '_V_Block34.npy'

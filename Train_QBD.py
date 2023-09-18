@@ -23,7 +23,7 @@ import torch.nn as nn
 import itertools
 
 import Model_QBD as model
-from Metrics import Load_Pre_VP_Dataset, adjust_learning_rate, validation_QBD, pre_validation, load_pretrain_model, Load_Pre_VP_CTU_Dataset
+from Metrics import Load_Pre_VP_Dataset, adjust_learning_rate, validation_QBD, pre_validation, load_pretrain_model
 
 L1_Loss = nn.L1Loss()
 L2_Loss = nn.MSELoss()
@@ -187,7 +187,7 @@ def pre_train_Q(args):
 
         if (epoch + 1) % 10 == 0:
             torch.save(Net.state_dict(),
-                       os.path.join(out_dir, comp + "_Q_" + str(args.qp) + "_epoch_CTU_%d_%.4f_%.4f_%.4f.pkl" % (
+                       os.path.join(out_dir, comp + "_Q_" + str(args.qp) + "_epoch_%d_%.4f_%.4f_%.4f.pkl" % (
                        epoch, epoch_loss, val_out_info_list[0], test_out_info_list[0])))
 
 def pre_train_BD(args):
@@ -215,8 +215,7 @@ def pre_train_BD(args):
         f.write(s)
     # Net_QB.load_state_dict(torch.load('/ghome/fengal/VVC_Fast_Partition_DP/PreModel/luma_qp32_109.pkl'))
 
-    # train_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=0, PredID=2, isLuma=args.isLuma)
-    train_loader = Load_Pre_VP_CTU_Dataset(args.inputDir, args.inputDir1, QP=args.qp, batchSize=args.batchSize, datasetID=0, PredID=2, isLuma=args.isLuma)
+    train_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=0, PredID=2, isLuma=args.isLuma)
     val_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=1, PredID=2, isLuma=args.isLuma)
     test_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=2, PredID=2, isLuma=args.isLuma)
     optimizer = torch.optim.Adam(Net.parameters(), lr=args.lr)
@@ -300,7 +299,7 @@ def pre_train_BD(args):
 
         if (epoch + 1) % 10 == 0:
             torch.save(Net.state_dict(),
-                       os.path.join(out_dir, comp + "_BD_" + str(args.qp) + "_epoch_CTU_%d_%.4f_%.4f_%.4f.pkl" % (
+                       os.path.join(out_dir, comp + "_BD_" + str(args.qp) + "_epoch_%d_%.4f_%.4f_%.4f.pkl" % (
                        epoch, epoch_loss, val_out_info_list[12], test_out_info_list[12])))
 
 def train_QBD(args):
@@ -334,8 +333,7 @@ def train_QBD(args):
         s = "epoch_loss, epoch_b0_L1_loss, epoch_b1_L1_loss, epoch_b2_L1_loss, val_b2_accu, test_b2_accu\n"
         f.write(s)
 
-    # train_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=0, PredID=2, isLuma=args.isLuma)
-    train_loader = Load_Pre_VP_CTU_Dataset(args.inputDir, args.inputDir1, QP=args.qp, batchSize=args.batchSize, datasetID=0, PredID=2, isLuma=args.isLuma)
+    train_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=0, PredID=2, isLuma=args.isLuma)
     val_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=1, PredID=2, isLuma=args.isLuma)
     test_loader = Load_Pre_VP_Dataset(args.inputDir, QP=args.qp, batchSize=args.batchSize, datasetID=2, PredID=2, isLuma=args.isLuma)
     optimizer = torch.optim.Adam(itertools.chain(Net_Q.parameters(), Net_BD.parameters()), lr=args.lr)
@@ -424,10 +422,10 @@ def train_QBD(args):
 
         if (epoch + 1) % 10 == 0:
             torch.save(Net_Q.state_dict(),
-                       os.path.join(out_dir, comp + "_Q_" + str(args.qp) + "_epoch_CTU_%d_%.4f_%.4f_%.4f_%.4f.pkl" % (
+                       os.path.join(out_dir, comp + "_Q_" + str(args.qp) + "_epoch_%d_%.4f_%.4f_%.4f_%.4f.pkl" % (
                        epoch, epoch_q_L1_loss, epoch_loss, val_out_info_list[12], test_out_info_list[12])))
             torch.save(Net_BD.state_dict(),
-                       os.path.join(out_dir, comp + "_BD_" + str(args.qp) + "_epoch_CTU_%d_%.4f_%.4f_%.4f_%.4f.pkl" % (
+                       os.path.join(out_dir, comp + "_BD_" + str(args.qp) + "_epoch_%d_%.4f_%.4f_%.4f_%.4f.pkl" % (
                        epoch, epoch_b2_L1_loss, epoch_loss, val_out_info_list[12], test_out_info_list[12])))
 
 if __name__ == '__main__':
