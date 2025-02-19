@@ -19,7 +19,7 @@ If our paper and codes are useful for your research, please cite:
 ```
 If you have any questions, please feel free to contact:
 
-Aolin Feng (fal1997@mail.ustc.edu.cn)
+Aolin Feng (aolinfeng1997@gmail.com)
 
 ## Preceding note:
 
