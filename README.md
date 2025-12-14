@@ -19,7 +19,7 @@ If our paper and codes are useful for your research, please cite:
 ```
 If you have any questions, please feel free to contact:
 
-Aolin Feng (aolinfeng1997@gmail.com)
+Aolin Feng (aolinf19@gmail.com)
 
 ## Preceding note:
 
@@ -49,4 +49,5 @@ This project involves the VVC codec, CNN training/inference, post-processing, an
 * The annotated code may be unused in the running process, but can be referenced for further modification.
 * The dataset is generated from the VVC encoder. It can be quite different if using different versions of VTM or different configurations. 
 * The name "QBD" is from "QT" + "BT" + "Direction" in the begining stage. We modified the expression of "BT" into "MTT" later in the paper writing, but we did not modify the naming in the code.
+
 
